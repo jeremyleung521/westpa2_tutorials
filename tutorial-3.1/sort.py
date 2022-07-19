@@ -47,6 +47,7 @@ def _sort_walkers_identity(we_driver, ibin, status, **kwargs):
     elif status == 4:  # _split_by_threshold() - check upper weight threshold
         ordered_array = segments[weights > we_driver.largest_allowed_weight]
     elif status == 5:  # _merge_by_threshold() - check lower weight threshold
+        cumul_weight = numpy.add.accumulate(weights)
         ordered_array = segments[weights < we_driver.smallest_allowed_weight]
     elif status == 6:  # _run_we - merging all segs in one group
         ordered_array = numpy.add.accumulate(weights)
@@ -94,7 +95,7 @@ def _sort_walkers_distmatrix(we_driver, ibin, status, **kwargs):
     return segments, weights, ordered_array, cumul_weight
 
 
-def _collect_coordinates(topology_path=None, traj_name=None, ref_path=None, parent_path=None, atom_slice=None, ref_slice=None, **group_arguments):
+def _collect_coordinates(topology_path=None, traj_name=None, ref_path=None, parent_path=None, atom_slice=None, ref_slice=None, **sort_arguments):
     """Function that collect all the xyz coordinates from location listed in `west.cfg` and group_arguments.
 
     Parameters
