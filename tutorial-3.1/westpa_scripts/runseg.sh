@@ -27,6 +27,10 @@ python nacl_prod.py
 python $WEST_SIM_ROOT/common_files/get_distance.py
 cat dist.dat > $WEST_PCOORD_RETURN
 
+python $WEST_SIM_ROOT/common_files/get_coord.py
+cp coord.npy $WEST_COORD_RETURN
+#cat coord.pdb | grep 'ATOM' | awk '{print $7, $8, $9}' > $WEST_COORD_RETURN
+
 cp bstate.pdb $WEST_TRAJECTORY_RETURN
 cp seg.dcd $WEST_TRAJECTORY_RETURN
 
@@ -36,4 +40,4 @@ cp seg.xml $WEST_RESTART_RETURN/parent.xml
 cp seg.log $WEST_LOG_RETURN
 
 # Clean up
-rm -f dist.dat nacl_prod.py
+rm -f dist.dat nacl_prod.py coord.dat

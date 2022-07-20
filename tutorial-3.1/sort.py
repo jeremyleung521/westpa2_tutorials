@@ -95,6 +95,35 @@ def _sort_walkers_distmatrix(we_driver, ibin, status, **kwargs):
     return segments, weights, ordered_array, cumul_weight
 
 
+def _featurize(coordinates):
+    """User-defined function that featurizes based on the coordinates generated from _collect_coordinates.
+    This version takes the coordinate between RMSD each frame's Cl- (It's superposed on Na+)
+    
+    Parameters
+    ----------
+    coordinates : array-like
+        An array-like object with the shape (n_frames, n_atoms, n_dimen). Generated from _collect_coordinates().
+
+    Returns
+    -------
+    matrix : numpy.ndarray
+        A square matrix where the element (i,j) is the pair-wise "distance" between structure i and structure j.
+
+    """
+    if coordinates is None or 0:
+        return None
+    else:
+        matrix = numpy.zeros((len(coordinates),len(coordinates)))
+        for i in range(0, len(coordinates)):
+            for j in range(i+1, len(coordinates)):
+                val = 0
+                for dimen in range(0, 2): # range x,y
+                    val += (coordinates[i,dimen] - coordinates[j,dimen])**2
+                matrix[i,j] = numpy.sqrt(val)
+                matrix[j,i] = numpy.sqrt(val)
+        return matrix
+
+
 def _collect_coordinates(topology_path=None, traj_name=None, ref_path=None, parent_path=None, atom_slice=None, ref_slice=None, **sort_arguments):
     """Function that collect all the xyz coordinates from location listed in `west.cfg` and group_arguments.
 
@@ -350,35 +379,3 @@ def coords_matrix(coords, n_clusters, splitting, **kwargs):
         log.warning('running kmeans as a backup')
         k_labels = kmeans(coords=coords, n_clusters=n_clusters, splitting=splitting, **kwargs)
         return k_labels
-
-
-def _featurize(coordinates):
-    """User-defined function that featurizes based on the coordinates generated from _collect_coordinates.
-    This version takes the coordinate between RMSD each frame's Cl- (It's superposed on Na+)
-    
-    Parameters
-    ----------
-    coordinates : array-like
-        An array-like object with the shape (n_frames, n_atoms, n_dimen). Generated from _collect_coordinates().
-
-    Returns
-    -------
-    matrix : numpy.ndarray
-        A square matrix where the element (i,j) is the pair-wise "distance" between structure i and structure j.
-
-    """
-    if coordinates is None or 0:
-        return None
-    else:
-        matrix = numpy.zeros((len(coordinates),len(coordinates)))
-        for i in range(0, len(coordinates)):
-            for j in range(i+1, len(coordinates)):
-                val = 0
-                for dimen in range(0, 2): # range x,y
-                    val += (coordinates[i,dimen] - coordinates[j,dimen])**2
-                matrix[i,j] = numpy.sqrt(val)
-                matrix[j,i] = numpy.sqrt(val)
-        return matrix
-
-
-
