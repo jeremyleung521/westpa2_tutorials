@@ -20,13 +20,13 @@ def _sort_walkers_identity(we_driver, ibin, status, **kwargs):
     status = 0    _run_we() - not doing any sorting
     status = 1    _split_by_weight() - check upper ideal weight threshold
     status = 2    _merge_by_weight() - check lower ideal weight threshold
-    status = 3    _adjust_count()
+    status = 3    _adjust_count() merge
     status = 4    _split_by_threshold() - check upper weight threshold
     status = 5    _merge_by_threshold() - check lower weight threshold
     status = 6    _run_we() - merging all segs in one group
     '''
-    with open('bin.pickle','wb') as fo:
-        pickle.dump(ibin,fo)
+    #with open('bin.pickle','wb') as fo:
+    #    pickle.dump(ibin,fo)
 
     log.debug('using sort._sort_walkers_identity')
     segments = numpy.array(sorted(ibin, key=operator.attrgetter('weight')), dtype=numpy.object_)
@@ -34,7 +34,7 @@ def _sort_walkers_identity(we_driver, ibin, status, **kwargs):
     cumul_weight = 0
 
     if status == 0:  # run_we - not doing any sorting
-        ordered_array = []
+        ordered_array = segments
     elif status == 1:  # _split_by_weight() - check upper ideal weight threshold
         ideal_weight = kwargs['ideal_weight']
         ordered_array = segments[weights > we_driver.weight_split_threshold * ideal_weight]
@@ -64,36 +64,126 @@ def _sort_walkers_distmatrix(we_driver, ibin, status, **kwargs):
     '''
     # Temporarily sorting them by weight. This is done because there are times where seg_ids are not assigned yet. Also
     # makes the distance matrix order much more predictable...
+    we_driver.sorting_function_kwargs['scheme'] = 'paired'
+    log.debug('using sort._sort_walkers_distmatrix')
+ 
     segments = numpy.array(sorted(ibin, key=operator.attrgetter('weight')), dtype=numpy.object_)
     weights = numpy.array(list(map(operator.attrgetter('weight'), segments)))
     cumul_weight = 0
 
-    # TODO: rewrite the collect_coordinates
-    all_coords = _collect_coordinates(**kwargs)
-    
-    # Probably don't need this backup...    
-    #if all_coords is -1:
-    #    log.warning('running kmeans as a backup')
-    #    k_labels = kmeans(coords=coords, n_clusters=n_clusters, splitting=splitting, **kwargs)
-    #    return k_labels
+    if status == 0: # run_we - not doing any sorting
+        ordered_array = segments
+    elif status == 1:  # _split_by_weight() - check upper ideal weight threshold
+        ideal_weight = kwargs['ideal_weight']
+        ordered_array = segments[weights > we_driver.weight_split_threshold * ideal_weight]
+        we_driver.sorting_function_kwargs['scheme'] = 'list'
+    elif status == 2:  # _merge_by_weight() - check lower ideal weight threshold
+        cumul_weight = numpy.add.accumulate(weights)
+        ideal_weight = kwargs['ideal_weight']
+        ordered_array = segments[cumul_weight <= ideal_weight * we_driver.weight_merge_cutoff]
+        we_driver.sorting_function_kwargs['scheme'] = 'list'
+    elif status == 4:  # _split_by_threshold() - check upper weight threshold
+        ordered_array = segments[weights > we_driver.largest_allowed_weight]
+        we_driver.sorting_function_kwargs['scheme'] = 'list'
+    elif status == 5:  # _merge_by_threshold() - check lower weight threshold
+        cumul_weight = numpy.add.accumulate(weights)
+        we_driver.sorting_function_kwargs['scheme'] = 'list'
+        ordered_array = segments[weights < we_driver.smallest_allowed_weight]
+    elif status == 6:  # _run_we - merging all segs in one group
+        ordered_array = numpy.add.accumulate(weights)
+        we_driver.sorting_function_kwargs['scheme'] = 'list'
+    elif status == 3:
+        log.debug('abcde trying status 3')
+        # TODO: rewrite the collect_coordinates
+        #if segments[0].data:
+        log.debug(f'bin length: {len(ibin)}')
 
-    #Tranform the coordinates
-    transformed_coords = _featurize(all_coords)
-   
-    sorted_flatten = numpy.argsort(transformed_coord, axis=None)
-    num_segs = len(dist_matrix)
-    sorted_indices = [] 
-    ordered_array = []
-    # 
-    for jdx in sorted_flatten:
-        temp_tuple = tuple([int(numpy.floor(jdx / num_segs), jdx % num_segs)])
-        if temp_tuple[1] > temp_tuple[0]: # Prevent double count...
-            sorted_indices.append(temp_tuple)
-    # The mapping process, turing indices into pointers to the segment objects
-    for paired_index in sorted_indices:
-        ordered_array.append(tuple([segments[paired_index[0]],segments[paried_index[1]]]))
+        try:
+            all_coords = _collect_aux_coordinates(we_driver, ibin, **kwargs)
+            print('using _collect_aux_coordinates')
+        except KeyError:
+            print('KeyError')
+            all_coords = None
+            #all_coords = _collect_coordinates(**kwargs)
+        print(f'foo {all_coords}') 
+        #Probably don't need this backup...    
+        if all_coords is None:
+            we_driver.sorting_function_kwargs['scheme'] = 'list'
+            return segments, weights, segments, cumul_weight
+        #    log.warning('running kmeans as a backup')
+        #    k_labels = kmeans(coords=coords, n_clusters=n_clusters, splitting=splitting, **kwargs)
+        #    return k_labels
+    
+        #Tranform the coordinates
+        distance_matrix = _featurize(all_coords)
+        print(distance_matrix)
+        # Sort based on the featurized distance matrix
+        sorted_flatten = numpy.argsort(distance_matrix, axis=None)
+        num_segs = len(distance_matrix)
+        sorted_indices = [] 
+        sorted_array = []
+
+        # The mapping process, turing indices into pointers to the segment objects
+        for jdx in sorted_flatten:
+            temp_tuple = tuple([int(numpy.floor(jdx / num_segs)), jdx % num_segs])
+            if temp_tuple[1] > temp_tuple[0]: # Prevent double count...
+                sorted_indices.append(temp_tuple)
+        for paired_index in sorted_indices:
+            sorted_array.append(tuple([segments[paired_index[0]],segments[paired_index[1]]]))
+        
+        print(sorted_array)
+        ordered_array = numpy.asarray(sorted_array)
+        we_driver.sorting_function_kwargs['scheme'] = 'paired'
+
+        # Passing different things depending on the status number...
+        #if status == 1:  # _split_by_weight() - check upper ideal weight threshold
+        #    ideal_weight = kwargs['ideal_weight']
+        #    ineligible_array = sorted_array[weights <= we_driver.weight_split_threshold * ideal_weight]
+        #    ordered_array = _sort_remove_ineligible(sorted_array, sorted_indices, ineligible_array)
+        #elif status == 2:  # _merge_by_weight() - check lower ideal weight threshold
+        #    cumul_weight = numpy.add.accumulate(weights)
+        #    ideal_weight = kwargs['ideal_weight']
+        #    ordered_array = segments[cumul_weight <= ideal_weight * we_driver.weight_merge_cutoff]
+        #    #ineligible_array = segments[cumul_weight > ideal_weight * we_driver.weight_merge_cutoff]
+        #elif status == 3:  # _adjust_count()
+        #    ordered_array = segments
+        #elif status == 4:  # _split_by_threshold() - check upper weight threshold
+        #    ordered_array = segments[weights > we_driver.largest_allowed_weight]
+        #elif status == 5:  # _merge_by_threshold() - check lower weight threshold
+        #    cumul_weight = numpy.add.accumulate(weights)
+        #    ordered_array = segments[weights < we_driver.smallest_allowed_weight]
+        #elif status == 6:  # _run_we - merging all segs in one group
+        #    ordered_array = numpy.add.accumulate(weights)
+        #else:
+        #    print(status)
+        #    print("Not sure why this is triggered")
+    
+        #ordered_array = numpy.asarray(ordered_array)
+
     return segments, weights, ordered_array, cumul_weight
 
+
+def _sort_remove_ineligible(sorted_array, sorted_indices, ineligible_array):
+    """Function that loops through the sorted_array (which are paired segments) and removes them
+    in one fell swoop.
+    """
+    del_list = []
+    for idx, paired_idx in enumerate(sorted_indices):
+        for jdx in paired_idx: # This is a paired list, so should be 2, but generalizing it...
+             if jdx in ineligible_array:
+                 del_list.append(idx)
+                 break
+    del_list = sorted(del_list, reverse=True)
+
+    print(del_list)
+    print(f'before: {sorted_array}')
+    for val in del_list:
+        del sorted_array[val]
+
+    print(f'after: {sorted_array}')
+
+    return sorted_array
+    
 
 def _featurize(coordinates):
     """User-defined function that featurizes based on the coordinates generated from _collect_coordinates.
@@ -114,14 +204,65 @@ def _featurize(coordinates):
         return None
     else:
         matrix = numpy.zeros((len(coordinates),len(coordinates)))
-        for i in range(0, len(coordinates)):
+        num_atoms = len(coordinates[0])
+        for i in range(0, len(coordinates)): # picking the frames
             for j in range(i+1, len(coordinates)):
                 val = 0
-                for dimen in range(0, 2): # range x,y
-                    val += (coordinates[i,dimen] - coordinates[j,dimen])**2
-                matrix[i,j] = numpy.sqrt(val)
-                matrix[j,i] = numpy.sqrt(val)
+                for atom in range(1, num_atoms): # picking the atom, only Cl-
+                    for dimen in range(0, 3): # range x,y,z
+                        val += (coordinates[i, atom,dimen] - coordinates[j, atom, dimen])**2
+                    matrix[i,j] = numpy.sqrt(val / num_atoms)
+                    matrix[j,i] = numpy.sqrt(val / num_atoms)
         return matrix
+
+
+def _collect_aux_coordinates(we_driver, segments, aux_name='coord', **kwargs):
+    """Function that collects all the xyz coordinates from the auxiliary dataset, which defaults to name 'coord'.
+    This assumes that it is in the format expected by the haMSM plugin, of the dimensions (segments, frame, atoms, 3).
+
+    Parameters
+    ----------
+    we_driver : obj
+        The we_driver object
+
+    segments : list or array-like
+        Sorted list/array of segments from bin.
+
+    aux_name : str
+        Name of the auxiliary dataset. Default : 'coord'
+
+    Returns
+    -------
+    all_coords : array-like object
+        An array-like objects containing all the xyz data.
+    """
+    psegments = numpy.array(sorted(we_driver.current_iter_segments, key=operator.attrgetter('weight')), dtype=numpy.object_)
+    if aux_name not in psegments[0].data:
+        return None
+    all_coords = []
+    parent_id_list = []
+    for segment in segments:
+        #print(segment.data[aux_name])
+        element = segment.wtg_parent_ids.pop()
+        segment.wtg_parent_ids.add(element)
+        parent_id_list.append(element)
+        #print(segment.wtg_parent_ids)
+    print(parent_id_list)
+    
+    parent_seg_list = []
+    #print(f'segments: {segments}')
+    #print(psegments)
+    #with open('pickle.pickle','wb') as fo:
+    #    pickle.dump(psegments, fo)
+
+    for pid in parent_id_list:
+        seg = [i for i in psegments if i.seg_id == pid]
+        all_coords.append(seg[0].data[aux_name][-1])
+    
+    all_coords = numpy.asarray(all_coords)
+
+    print(all_coords)
+    return all_coords
 
 
 def _collect_coordinates(topology_path=None, traj_name=None, ref_path=None, parent_path=None, atom_slice=None, ref_slice=None, **sort_arguments):
@@ -279,7 +420,7 @@ def dist_matrix(coords, n_clusters, splitting, **kwargs):
     ## TODO: Write a version which uses the segment.data{} (i.e. HDF5 Framework)
     all_coords = _collect_coordinates(**kwargs)
     
-    if all_coords is -1:
+    if all_coords == -1:
         log.warning('running kmeans as a backup')
         k_labels = kmeans(coords=coords, n_clusters=n_clusters, splitting=splitting, **kwargs)
         return k_labels
